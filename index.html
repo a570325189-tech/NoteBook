@@ -3,10 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>多人协同云记事本</title>
+    <title>多人协同云记事本 (Supabase 旗舰版)</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         :root {
-            --primary-color: #2ecc71;
+            --primary-color: #3ecf8e;
             --bg-color: #f4f6f9;
             --card-bg: #ffffff;
             --text-color: #333333;
@@ -41,7 +42,6 @@
             font-size: 14px;
         }
 
-        /* 输入区域样式 */
         .input-area {
             background: var(--card-bg);
             padding: 20px;
@@ -110,6 +110,11 @@
             cursor: pointer;
         }
 
+        .btn-submit:disabled {
+            background-color: #bdc3c7;
+            cursor: not-allowed;
+        }
+
         #preview-img {
             max-width: 120px;
             max-height: 120px;
@@ -118,7 +123,6 @@
             border-radius: 6px;
         }
 
-        /* 状态提示 */
         .status-bar {
             text-align: center;
             padding: 8px;
@@ -129,7 +133,6 @@
             color: #117a65;
         }
 
-        /* 笔记列表样式 */
         .notes-list {
             display: flex;
             flex-direction: column;
@@ -159,7 +162,7 @@
 
         .note-image {
             max-width: 100%;
-            max-height: 350px;
+            max-height: 450px;
             border-radius: 8px;
             margin-top: 12px;
             display: block;
@@ -186,9 +189,9 @@
 
 <div class="container">
     <h1>🌐 多人协同云记事本</h1>
-    <div class="subtitle">所有打开此网页的人均可实时查看与编辑</div>
+    <div class="subtitle">基于 Supabase 强力驱动 · 全网高稳定同步</div>
 
-    <div class="status-bar" id="status-text">正在从云端同步数据...</div>
+    <div class="status-bar" id="status-text">正在初始化云端数据库...</div>
 
     <div class="input-area">
         <textarea id="note-text" placeholder="在这里输入内容，所有人都能看到..."></textarea>
@@ -203,32 +206,33 @@
     </div>
 
     <div class="notes-list" id="notes-container">
-        <div class="loading">正在加载云端笔记...</div>
+        <div class="loading">正在同步云端笔记...</div>
     </div>
 </div>
 
 <script>
-    // 【重要提示】这里使用了一个公共的测试存储空间（Bucket）
-    // 为了防止你的内容被全世界其他不相干的人看到/覆盖，你可以把下面这段随机字符串修改成只有你和朋友知道的专属暗号（比如 "my_family_notebook_2026"）
-    const BUCKET_ID = "ziheng_notebook_2026_safe_nx7"; 
-    const API_URL = `https://kvdb.io/${BUCKET_ID}/notes_data`;
+    // 填入你在第一步中申请到的 Supabase 凭证
+    const SUPABASE_URL = "请在这里粘贴你的Project URL";
+    const SUPABASE_ANON_KEY = "请在这里粘贴你的anon public密钥";
+
+    // 初始化 Supabase 客户端
+    const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    document.getElementById('status-text').innerText = "云端连接成功！";
 
     let currentBase64Image = "";
-    let isSaving = false;
 
     window.onload = function() {
-        fetchNotes(); // 初始化加载
-        
-        // 每隔 10 秒自动刷新一次，同步别人的修改
-        setInterval(fetchNotes, 10000);
+        if(SUPABASE_URL !== "请在这里粘贴你的Project URL") {
+            fetchNotes();
+            setInterval(fetchNotes, 10000); // 每 10 秒自动刷新
+        }
 
-        // 图片转 Base64 逻辑
+        // 图片转换
         document.getElementById('note-image-input').addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (file) {
-                // 限制图片大小，防止云端数据库因单次传输过大而报错 (限制在1.5MB以内)
                 if (file.size > 1.5 * 1024 * 1024) {
-                    alert("图片太大了，请上传 1.5MB 以内的图片！");
+                    alert("图片超过 1.5MB，请上传较小的图片！");
                     return;
                 }
                 const reader = new FileReader();
@@ -244,27 +248,22 @@
         });
     };
 
-    // 从云端获取笔记
-    function fetchNotes() {
-        if(isSaving) return; // 正在保存时不要刷新，防止冲突
-        
-        updateStatus("正在从云端刷新...");
-        fetch(API_URL)
-            .then(res => {
-                if (!res.ok) return []; // 如果是第一次使用，云端没有数据，返回空数组
-                return res.json();
-            })
-            .then(notes => {
-                renderNotes(notes);
-                updateStatus("云端数据已同步（每10秒自动刷新）");
-            })
-            .catch(err => {
-                console.error(err);
-                updateStatus("同步失败，请检查网络联接");
-            });
+    // 获取云端笔记
+    async function fetchNotes() {
+        const { data, error } = await _supabase
+            .from('notes')
+            .select('*')
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            document.getElementById('status-text').innerText = "刷新失败: " + error.message;
+            return;
+        }
+        renderNotes(data);
+        document.getElementById('status-text').innerText = "云端同步成功 (" + new Date().toLocaleTimeString() + ")";
     }
 
-    // 将数据渲染到页面
+    // 渲染页面
     function renderNotes(notes) {
         const container = document.getElementById('notes-container');
         if (!notes || notes.length === 0) {
@@ -276,11 +275,13 @@
         notes.forEach(note => {
             const card = document.createElement('div');
             card.className = 'note-card';
+
             let imageHtml = note.image ? `<img src="${note.image}" class="note-image">` : '';
             let textHtml = note.text ? `<div class="note-content">${escapeHtml(note.text)}</div>` : '';
+            let localTime = new Date(note.created_at).toLocaleString('zh-CN');
 
             card.innerHTML = `
-                <div class="note-time">🕒 ${note.time}</div>
+                <div class="note-time">🕒 ${localTime}</div>
                 <button class="btn-delete" onclick="deleteNote(${note.id})">删除</button>
                 ${textHtml}
                 ${imageHtml}
@@ -289,90 +290,52 @@
         });
     }
 
-    // 保存笔记到云端
-    function saveNote() {
+    // 保存笔记
+    async function saveNote() {
         const textInput = document.getElementById('note-text');
         const textContent = textInput.value.trim();
+        const submitBtn = document.getElementById('submit-btn');
 
         if (!textContent && !currentBase64Image) {
             alert('请先输入文字或选择图片！');
             return;
         }
 
-        isSaving = true;
-        updateStatus("正在提交到云端...");
-        setFormDisabled(true);
+        submitBtn.disabled = true;
+        document.getElementById('status-text').innerText = "正在同步至全球云端...";
 
-        // 先获取最新的云端列表，再把新的加进去
-        fetch(API_URL)
-            .then(res => res.ok ? res.json() : [])
-            .then(notes => {
-                const newNote = {
-                    id: Date.now(),
-                    text: textContent,
-                    image: currentBase64Image,
-                    time: new Date().toLocaleString('zh-CN')
-                };
-                notes.unshift(newNote); // 放在最前面
+        const { error } = await _supabase
+            .from('notes')
+            .insert([{ text: textContent, image: currentBase64Image }]);
 
-                // 把更新后的完整列表发送回云端
-                return fetch(API_URL, {
-                    method: 'POST',
-                    body: JSON.stringify(notes)
-                });
-            })
-            .then(() => {
-                // 清空输入框
-                textInput.value = '';
-                currentBase64Image = '';
-                document.getElementById('preview-img').style.display = 'none';
-                document.getElementById('note-image-input').value = '';
-                document.getElementById('upload-btn-text').innerText = '📷 添加图片';
-                
-                isSaving = false;
-                setFormDisabled(false);
-                fetchNotes(); // 刷新列表
-            })
-            .catch(err => {
-                alert("发送失败，请重试！");
-                isSaving = false;
-                setFormDisabled(false);
-            });
+        if (error) {
+            alert('保存失败: ' + error.message);
+        } else {
+            textInput.value = '';
+            currentBase64Image = '';
+            document.getElementById('preview-img').style.display = 'none';
+            document.getElementById('note-image-input').value = '';
+            document.getElementById('upload-btn-text').innerText = '📷 添加图片';
+            fetchNotes();
+        }
+        submitBtn.disabled = false;
     }
 
-    // 从云端删除笔记
-    function deleteNote(id) {
-        if(!confirm('确定要删除这条云端笔记吗？所有人都会看不见它。')) return;
+    // 删除笔记
+    async function deleteNote(id) {
+        if (!confirm('确定要删除这条云端笔记吗？所有人都会看不见。')) return;
 
-        isSaving = true;
-        updateStatus("正在从云端删除...");
+        document.getElementById('status-text').innerText = "正在从云端移除...";
+        const { error } = await _supabase
+            .from('notes')
+            .delete()
+            .eq('id', id);
 
-        fetch(API_URL)
-            .then(res => res.json())
-            .then(notes => {
-                const updatedNotes = notes.filter(note => note.id !== id);
-                return fetch(API_URL, {
-                    method: 'POST',
-                    body: JSON.stringify(updatedNotes)
-                });
-            })
-            .then(() => {
-                isSaving = false;
-                fetchNotes();
-            })
-            .catch(err => {
-                alert("删除失败");
-                isSaving = false;
-            });
-    }
-
-    function updateStatus(text) {
-        document.getElementById('status-text').innerText = text;
-    }
-
-    function setFormDisabled(disabled) {
-        document.getElementById('note-text').disabled = disabled;
-        document.getElementById('submit-btn').disabled = disabled;
+        if (error) {
+            alert('删除失败: ' + error.message);
+        } else {
+            fetchNotes();
+        }
     }
 
     function escapeHtml(text) {
